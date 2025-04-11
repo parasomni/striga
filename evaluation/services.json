@@ -1,0 +1,28 @@
+{
+    "web": [
+        "nmap",
+        "dirbuster",
+        "ffuf",
+        "gobuster",
+        "nmap-http",
+        "whatweb",
+        "whois"
+    ],
+    "smb": [
+        "enum4linux",
+        "smbclient"
+    ],
+    "snmp": [
+        "snmpbulkwalk"
+    ],
+    "dns": [
+        "dnsenum",
+        "nslookup"
+    ],
+    "sql": [
+        "sqlmap"
+    ],
+    "ldap": [
+        "ldapsearch"
+    ]
+}

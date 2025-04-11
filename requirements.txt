@@ -1,0 +1,8 @@
+pyyaml
+msgpack
+requests
+pymetasploit3
+xmltodict
+pexpect
+bs4
+colorama

@@ -1,0 +1,5 @@
+#!/bin/bash
+
+source /opt/striga/.venv/bin/activate
+python3 /opt/striga/striga.py "$@"
+deactivate

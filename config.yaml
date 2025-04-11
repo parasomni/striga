@@ -1,0 +1,110 @@
+framework:
+  name: striga attack framework
+  version: 1.0.0
+  location: /etc/striga
+  logging_dir: logs
+  logging_file: framework.log
+  config_path: config.yaml
+  vuln_cache: vuln_results.json
+  services_list: /opt/striga/evaluation/services.json
+  debug: false
+  timeout: 300
+exploit_launcher:
+  MSF_PASSWORD: akVcNV3j
+  MSF_SERVER: 127.0.0.1
+  MSF_PORT: 55552
+  LHOST: 10.10.14.204
+  LPORT: '4444'
+  CHOST: 10.10.14.204
+  CPORT: '4444'
+  CVE_DATABASE: cve_mappings.json
+  VULNERS_API_FILE: vulners_api.key
+  MITRE_API_URL: https://cveawg.mitre.org/api/cve/
+  VULNERS_API_URL: https://vulners.com/api/v3/search/lucene/
+performance:
+  use_cache: true
+scanner:
+  nmap:
+    enabled: true
+    flags:
+    - -sV
+    - -p-
+    - --min-rate=1000
+  nmap-http:
+    enabled: false
+    flags:
+    - -sV
+    - --script
+    - http-enum
+    - -Pn
+  nmap-vuln:
+    enabled: true
+    flags:
+    - -sV
+    - --script
+    - vuln
+    - -Pn
+    - -oX
+    - '-'
+  nuclei:
+    enabled: true
+    flags:
+    - -jsonl
+  nikto:
+    enabled: false
+    flags:
+    - ''
+  enum4linux:
+    enabled: true
+    flags:
+    - -a
+  ffuf:
+    enabled: true
+    flags:
+    - -w
+    - /usr/share/seclists/Discovery/DNS/subdomains-top1million-20000.txt
+  gobuster:
+    enabled: true
+    flags:
+    - dir
+    - -x
+    - html,php,js
+    - -w
+    - /usr/share/seclists/Discovery/Web-Content/common.txt
+  dirbuster:
+    enabled: false
+    flags:
+    - ''
+  whatweb:
+    enabled: true
+    flags:
+    - ' '
+  smbclient:
+    enabled: false
+    flags:
+    - -L
+    - -N
+  snmpbulkwalk:
+    enabled: true
+    flags:
+    - ' '
+  dnsenum:
+    enabled: true
+    flags:
+    - ' '
+  nslookup:
+    enabled: true
+    flags:
+    - ' '
+  whois:
+    enabled: true
+    flags:
+    - ' '
+  sqlmap:
+    enabled: false
+    flags:
+    - ' '
+  ldapsearch:
+    enabled: false
+    flags:
+    - ' '

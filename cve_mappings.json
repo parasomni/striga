@@ -1,0 +1,21 @@
+{
+    "CVE-2010-4478": "encoder/cmd/powershell_base64",
+    "CVE-2022-2795": "exploit/android/local/put_user_vroot",
+    "CVE-2017-14798": "exploit/linux/http/openmetadata_auth_bypass_rce",
+    "CVE-2017-7548": "exploit/linux/http/acronis_cyber_infra_cve_2023_45249",
+    "CVE-2023-5869": "exploit/android/browser/samsung_knox_smdm_url",
+    "CVE-2018-1115": "exploit/multi/http/plone_popen2",
+    "CVE-2011-2523": "exploit/unix/ftp/vsftpd_234_backdoor",
+    "CVE-2004-2687": "exploit/unix/misc/distcc_exec",
+    "CVE-2015-3306": "exploit/unix/ftp/proftpd_modcopy_exec",
+    "CVE-2007-2447": "exploit/multi/samba/usermap_script",
+    "CVE-2011-3556": "exploit/multi/misc/java_rmi_server",
+    "CVE-2010-2981": "encoder/cmd/powershell_base64",
+    "CVE-2012-1823": "exploit/multi/http/php_cgi_arg_injection",
+    "CVE-2007-3280": "exploit/linux/postgres/postgres_payload",
+    "CVE-2017-3318": "exploit/linux/http/oracle_ebs_rce_cve_2022_21587",
+    "CVE-2018-0735": "exploit/linux/http/ivanti_connect_secure_rce_cve_2024_37404",
+    "CVE-2009-3843": "exploit/multi/http/tomcat_mgr_deploy",
+    "CVE-2010-2075": "exploit/unix/irc/unreal_ircd_3281_backdoor",
+    "CVE-2018-15473": "encoder/cmd/powershell_base64"
+}
