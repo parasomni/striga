@@ -10,6 +10,8 @@ from core import parser
 from core import config
 from core import logger
 from core import check_dir
+from core import run_scanner_adder
+from core import run_module_adder
 
 from enumeration.web import run_ffuf_enum
 from enumeration.web import run_nmap_http_enum
@@ -23,8 +25,8 @@ from enumeration.dns import run_dnsenum_enum
 from enumeration.dns import run_nslookup_enum
 from enumeration.sql import run_sqlmap_enum
 from enumeration.ldap import run_ldapsearch_enum
+from scanner import run_rustscan_scan
 from enumeration import run_enumerator
-from enumeration import run_module_adder
 
 from evaluation import run_presenter
 from evaluation import list_services
@@ -33,7 +35,7 @@ from evaluation import get_services_list
 from exploitation import exploit_from_cve_results
 
 from scanner import run_nmap
-from scanner import run_vuln_scanners  
+from scanner import run_scanners  
 
 def run_script(script_name, script_args):
     if not re.match(r'^[a-zA-Z0-9_]+$', script_name):
@@ -108,10 +110,10 @@ async def exploiting(target, cve_file=None):
         if config.continue_scan and not os.path.exists(config.vuln_cache_file):
             logger.log(f"{Fore.LIGHTRED_EX}[-]{Style.RESET_ALL} No cached scan results found for {target}.")
             logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching vulnerability scanner on {target}...")
-            vulnerabilities = await run_vuln_scanners(target) 
+            vulnerabilities = await run_scanners(target) 
         elif not config.continue_scan:
             logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching vulnerability scanner on {target}...")
-            vulnerabilities = await run_vuln_scanners(target) 
+            vulnerabilities = await run_scanners(target) 
 
     else:
         try:
@@ -245,9 +247,14 @@ def main():
         run_presenter(args.service, args.show_id, args.list_services)
     elif args.list_modules:
         run_presenter(args.service, args.show_id, args.list_services, args.list_modules)
+    elif args.list_scanners:
+        run_presenter("scanner", args.show_id, args.list_services, args.list_modules,  args.list_scanners)
     elif args.add_module:
         module, service = args.add_module
         run_module_adder(module, service)
+    elif args.add_scanner:
+        scanner = args.add_scanner
+        run_scanner_adder(scanner)
     else:
         try:
             asyncio.run(run_striga(args))

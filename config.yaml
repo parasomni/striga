@@ -108,3 +108,15 @@ scanner:
     enabled: false
     flags:
     - ' '
+  rustscan:
+    enabled: false
+    flags:
+    - --ulimit
+    - 5000
+    - -b
+    - 2500
+    - --
+    - -sC
+    - -sV
+    - -Pn
+
