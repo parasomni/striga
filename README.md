@@ -18,72 +18,75 @@ After the install script has finished, striga can be executed by just typing `st
 
     [ user ~  ]# striga -h
 
-               __         .__              
-       _______/  |________|__| _________   
+                __          __              
+        _______/  |________|__| _________   
       /  ___/\   __\_  __ \  |/ ___\__  \  
       \___  \ |  |  |  | \/  / /_/  / __ \_
      /____  / |__|  |__|  |__\___  (____  /
-          \/                /_____/     \/ v1.0.0
+          \/                /_____/     \/ v1.1.0
 
 
-    [+] Starting striga v1.0.0 at 2025-04-09T15:59:22
-    usage: striga.py [-h] [--target TARGET] [--targets TARGETS] [--auto-enum] [--auto-exploit] [--auto-all] [--scan] [--enum ENUM_SERVICE]
-                    [--exploit CVE_FILE] [--interactive] [--config CONFIG] [--log LOG] [--continue] [--continue-scanid CONTINUE_SCAN_ID]
-                    [--show-service SERVICE] [--list-services] [--list-modules] [--show-id SHOW_ID] [--debug] [--add-module ADD_MODULE]
-                    [script] ...
+      [+] Starting striga v1.1.0 at 2026-01-21T21:42:07
+      usage: striga.py [-h] [--target TARGET] [--targets TARGETS] [--auto-enum] [--auto-exploit] [--auto-all]  [--scan]
+                      [--enum ENUM_SERVICE] [--exploit CVE_FILE] [--interactive] [--config CONFIG] [--log LOG] [--continue]
+                      [--continue-scanid CONTINUE_SCAN_ID] [--show-service SERVICE] [--list-services] [--list-modules]
+                      [--list-scanners] [--show-id SHOW_ID] [--debug] [--add-module ADD_MODULE] [--add-scanner ADD_SCANNER]
+                      [script] ...
 
-    [Striga Attack Framework]
+      [Striga Attack Framework]
 
-    positional arguments:
-      script                Script to run from utils folder
-      script_args           Arguments for the script
+      positional arguments:
+        script                Script to run from utils folder
+        script_args           Arguments for the script
 
-    options:
-      -h, --help            show this help message and exit
+      options:
+        -h, --help            show this help message and exit
 
-    Target specification:
-      --target TARGET       Specify a single target (IP or domain)
-      --targets TARGETS     Specify a file with multiple targets
+      Target specification:
+        --target TARGET       Specify a single target (IP or domain)
+        --targets TARGETS     Specify a file with multiple targets
 
-    Automation:
-      --auto-enum           Enable automated enumeration
-      --auto-exploit        Enable automated exploitation
-      --auto-all            Enable full automation (scan -> enum -> exploit)
+      Automation:
+        --auto-enum           Enable automated enumeration
+        --auto-exploit        Enable automated exploitation
+        --auto-all            Enable full automation (scan -> enum -> exploit)
 
-    Manual execution:
-      --scan                Run scanning module manually
-      --enum ENUM_SERVICE   Specify the service for manual enumeration (or <all> to include every service)
-      --exploit CVE_FILE    Run exploitation module manually by providing a file containing CVE's
-      --interactive         Run in interactive mode
+      Manual execution:
+        --scan                Run scanning module manually
+        --enum ENUM_SERVICE   Specify the service for manual enumeration (or <all> to include every service)
+        --exploit CVE_FILE    Run exploitation module manually by providing a file containing CVE's
+        --interactive         Run in interactive mode
 
-    General configuration:
-      --config CONFIG       Specify a custom configuration file
-      --log LOG             Specify a custom logging file
-      --continue            Continues the last scan
-      --continue-scanid CONTINUE_SCAN_ID
-                            Continues a scan by id
+      General configuration:
+        --config CONFIG       Specify a custom configuration file
+        --log LOG             Specify a custom logging file
+        --continue            Continues the last scan
+        --continue-scanid CONTINUE_SCAN_ID
+                              Continues a scan by id
 
-    Result presentation:
-      --show-service SERVICE
-                            Show the results of a specified service(e.g web, smb)
-      --list-services       List all available services to present
-      --list-modules        List all available enumeration modules
-      --show-id SHOW_ID     Specify a scan id to show results. If this option is not provided, the last scan id is used.
+      Result presentation:
+        --show-service SERVICE
+                              Show the results of a specified service(e.g web, smb or all for including every service)
+        --list-services       List all available services to present
+        --list-modules        List all available enumeration modules
+        --list-scanners       List all available scanners
+        --show-id SHOW_ID     Specify a scan id to show results. If this option is not provided, the last scan id is used.
 
-    Developer options:
-      --debug               Enable debug mode
-      --add-module ADD_MODULE
-                            Specify the module name and service (eg. 'whatweb,web')
+      Developer options:
+        --debug               Enable debug mode
+        --add-module ADD_MODULE
+                              Specify the module name and service (eg. 'whatweb,web')
+        --add-scanner ADD_SCANNER
+                              Specify the scanner to add
 
-    Available scripts in utils folder:
-      pwdfinder
-      revshells
-      ...
+      Available scripts in utils folder:
+        pwdfinder
+        revshells
 
-    Examples:
-      python3 striga.py --target 10.10.14.109 --exploit cve_numbers.json
-      python3 striga.py --targets targets.txt --auto-all
-      python3 striga.py revshells -h
+      Examples:
+        python3 striga.py --target 10.10.14.109 --exploit cve_numbers.json
+        python3 striga.py --targets targets.txt --auto-all
+        python3 striga.py revshells -h
 
 
 ## Scanning and Enumeration
