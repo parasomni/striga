@@ -24,5 +24,8 @@
     ],
     "ldap": [
         "ldapsearch"
+    ],
+    "scanner": [
+        "rustscan"
     ]
 }

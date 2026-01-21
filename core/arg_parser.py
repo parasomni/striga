@@ -65,10 +65,12 @@ class ArgumentParser:
         result_group.add_argument("--show-service", dest="service", help="Show the results of a specified service(e.g web, smb or all for including every service)")
         result_group.add_argument("--list-services", action="store_true", help="List all available services to present")
         result_group.add_argument("--list-modules", action="store_true", help="List all available enumeration modules")
+        result_group.add_argument("--list-scanners", action="store_true", help="List all available scanners")
         result_group.add_argument("--show-id", help="Specify a scan id to show results. If this option is not provided, the last scan id is used.")
 
         developer_group.add_argument("--debug", action="store_true", help="Enable debug mode")
         developer_group.add_argument("--add-module", type=lambda s: s.split(','), help="Specify the module name and service (eg. 'whatweb,web')")
+        developer_group.add_argument("--add-scanner", help="Specify the scanner to add")
 
         self.parser.add_argument('script', nargs='?', help='Script to run from utils folder')
         self.parser.add_argument('script_args', nargs=argparse.REMAINDER, help='Arguments for the script')

@@ -1,6 +1,6 @@
 framework:
   name: striga attack framework
-  version: 1.0.0
+  version: 1.1.0
   location: /etc/striga
   logging_dir: logs
   logging_file: framework.log
@@ -108,3 +108,15 @@ scanner:
     enabled: false
     flags:
     - ' '
+  rustscan:
+    enabled: false
+    flags:
+    - --ulimit
+    - 5000
+    - -b
+    - 2500
+    - --
+    - -sC
+    - -sV
+    - -Pn
+

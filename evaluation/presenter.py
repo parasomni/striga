@@ -66,9 +66,19 @@ def list_modules(services_list, json_doc):
     
     logger.log(f"{Fore.LIGHTBLUE_EX}=" * 50)
 
+def list_scanners(services_list, json_doc):
+    logger.log(f"{Fore.LIGHTBLUE_EX}=" * 50)
+    logger.log(f"{Fore.LIGHTYELLOW_EX}[*]{Style.RESET_ALL} Listing available scanners: ")
+    
+    for service in services_list:
+        if service == "scanner":
+            logger.log(f"{Fore.LIGHTYELLOW_EX}[+] {service}{Style.RESET_ALL}")
+            for module in json_doc[service]:
+                logger.log(f"{Fore.LIGHTCYAN_EX}[|] -- {module}{Style.RESET_ALL}")
+    
+    logger.log(f"{Fore.LIGHTBLUE_EX}=" * 50)
 
-
-def run_presenter(service, scanid,  list_svc=False, list_mdl=False):
+def run_presenter(service, scanid,  list_svc=False, list_mdl=False, list_sca = False):
     logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching presenter...")
 
     services_list, json_doc = get_services_list()
@@ -80,6 +90,11 @@ def run_presenter(service, scanid,  list_svc=False, list_mdl=False):
     
     if list_mdl:
         list_modules(services_list, json_doc)
+        logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Presenter finished.")
+        return
+    
+    if list_sca:
+        list_scanners(services_list, json_doc)
         logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Presenter finished.")
         return
     

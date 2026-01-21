@@ -11,6 +11,16 @@ from core import gen_id
 from core import logger
 from core import check_dir
 
+async def run_rustscan_scan(target):
+    from scanner import run_rustscan_scan
+
+    enabled = config.get_config_value("enabled", "scanner:rustscan")
+    if not enabled:
+        return None
+
+    results = await run_rustscan_scan(target)
+    return {"rustscan": results}
+
 
 async def run_nmap_vuln_scan(target):
     from scanner import run_nmap_vuln_scan
@@ -46,7 +56,8 @@ async def run_all_scanners(target):
     tasks = {
         "nmap-vuln": run_nmap_vuln_scan(target),
         "nikto": run_nikto_scan(target),
-        "nuclei": run_nuclei_vuln_can(target)
+        "nuclei": run_nuclei_vuln_can(target),
+        "rustscan": run_rustscan_scan(target)
     }
     
     results = await asyncio.gather(*tasks.values())
@@ -56,7 +67,7 @@ async def run_all_scanners(target):
     return merged_results
 
 
-async def run_vuln_scanners(target):
+async def run_scanners(target):
     results = await run_all_scanners(target)
 
     use_cache = config.get_config_value("use_cache", "performance")
