@@ -1,6 +1,6 @@
 framework:
   name: striga attack framework
-  version: 1.0.0
+  version: 1.1.0
   location: /etc/striga
   logging_dir: logs
   logging_file: framework.log
