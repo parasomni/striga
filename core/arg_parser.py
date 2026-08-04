@@ -43,6 +43,7 @@ class ArgumentParser:
         manual_group = self.parser.add_argument_group("Manual execution")
         general_group = self.parser.add_argument_group("General configuration")
         result_group = self.parser.add_argument_group("Result presentation")
+        module_group = self.parser.add_argument_group("Module control")
         developer_group = self.parser.add_argument_group("Developer options")
         
         target_group.add_argument("--target", help="Specify a single target (IP or domain)")
@@ -51,6 +52,9 @@ class ArgumentParser:
         automation_group.add_argument("--auto-enum", action="store_true", help="Enable automated enumeration")
         automation_group.add_argument("--auto-exploit", action="store_true", help="Enable automated exploitation")
         automation_group.add_argument("--auto-all", action="store_true", help="Enable full automation (scan -> enum -> exploit)")
+        automation_group.add_argument("--no-confirm", action="store_true", help="Skip the confirmation prompt before executing a fetched GitHub PoC (default: ask)")
+        automation_group.add_argument("--skip-github-poc", action="store_true", help="Skip the GitHub PoC index fallback entirely when Metasploit has no module for a CVE (equivalent to --disable-module github_exploit)")
+        automation_group.add_argument("--exploit-timeout", type=int, metavar="SECONDS", help="Max seconds to let a sandboxed GitHub PoC run before killing it and moving to the next candidate (overrides sandbox.timeout in config.yaml, default 120)")
 
         manual_group.add_argument("--scan", action="store_true", help="Run scanning module manually")
         manual_group.add_argument("--enum", dest="enum_service", help="Specify the service for manual enumeration (or <all> to include every service)")
@@ -63,10 +67,14 @@ class ArgumentParser:
         general_group.add_argument("--continue-scanid", dest="continue_scan_id", help="Continues a scan by id")
     
         result_group.add_argument("--show-service", dest="service", help="Show the results of a specified service(e.g web, smb or all for including every service)")
+        result_group.add_argument("--show-module", dest="module", help="Show the saved results of a single module/tool (e.g. nmap, whatweb, ffuf) instead of a whole service. Use --list-modules/--list-scanners to see available names.")
         result_group.add_argument("--list-services", action="store_true", help="List all available services to present")
         result_group.add_argument("--list-modules", action="store_true", help="List all available enumeration modules")
         result_group.add_argument("--list-scanners", action="store_true", help="List all available scanners")
         result_group.add_argument("--show-id", help="Specify a scan id to show results. If this option is not provided, the last scan id is used.")
+
+        module_group.add_argument("--enable-module", action="append", metavar="MODULE", help="Force-enable a module for this run (e.g. --enable-module nikto). Use --list-modules/--list-scanners to see names. Can be repeated.")
+        module_group.add_argument("--disable-module", action="append", metavar="MODULE", help="Force-disable a module for this run (e.g. --disable-module sqlmap). Can be repeated.")
 
         developer_group.add_argument("--debug", action="store_true", help="Enable debug mode")
         developer_group.add_argument("--add-module", type=lambda s: s.split(','), help="Specify the module name and service (eg. 'whatweb,web')")

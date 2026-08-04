@@ -6,3 +6,5 @@ xmltodict
 pexpect
 bs4
 colorama
+setuptools<81
+python-Wappalyzer

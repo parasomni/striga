@@ -1,6 +1,6 @@
 framework:
   name: striga attack framework
-  version: 1.1.0
+  version: 1.2.0
   location: /etc/striga
   logging_dir: logs
   logging_file: framework.log
@@ -13,14 +13,41 @@ exploit_launcher:
   MSF_PASSWORD: akVcNV3j
   MSF_SERVER: 127.0.0.1
   MSF_PORT: 55552
-  LHOST: 10.10.14.204
+  LHOST: 10.10.14.218
   LPORT: '4444'
-  CHOST: 10.10.14.204
+  CHOST: 10.10.14.218
   CPORT: '4444'
   CVE_DATABASE: cve_mappings.json
   VULNERS_API_FILE: vulners_api.key
   MITRE_API_URL: https://cveawg.mitre.org/api/cve/
   VULNERS_API_URL: https://vulners.com/api/v3/search/lucene/
+web_tech_lookup:
+  enabled: true
+  vulners_software_url: https://vulners.com/api/v3/burp/software/
+  nvd_api_url: https://services.nvd.nist.gov/rest/json/cves/2.0
+  # Override if `httpx` on PATH resolves to the unrelated Python httpx HTTP
+  # client's CLI (pip install httpx[cli]) instead of ProjectDiscovery's recon
+  # tool -- point this at the correct binary's full path, e.g. ~/go/bin/httpx.
+  httpx_binary: httpx
+github_exploit_search:
+  enabled: true
+  poc_index_url: https://raw.githubusercontent.com/nomi-sec/PoC-in-GitHub/master
+  max_candidates: 5
+  min_stars: 0
+  exclude_discovery_scripts: true
+sandbox:
+  enabled: true
+  strict_egress: true
+  cpu_limit: '0.5'
+  memory_limit: 256m
+  pids_limit: 64
+  timeout: 120
+  images:
+    py: striga-sandbox-python:3.12
+    sh: bash:5
+    pl: perl:slim
+    rb: ruby:3-alpine
+    php: php:8-cli-alpine
 performance:
   use_cache: true
 scanner:

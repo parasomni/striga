@@ -4,6 +4,7 @@ from .nmap_http_enum import run_nmap_http_enum
 from .gobuster_enum import run_gobuster_enum
 from .whatweb_enum import run_whatweb_enum
 from .whois_enum import run_whois_enum
+from .webtech_enum import run_webtech_enum
 
 __all__ = [
     "run_dirbuster_enum",
@@ -12,4 +13,5 @@ __all__ = [
     "run_gobuster_enum",
     "run_whatweb_enum",
     "run_whois_enum",
+    "run_webtech_enum",
 ]

@@ -5,19 +5,19 @@ from core import config, logger
 
 module_name = "nmap-http"
 
-async def run_nmap_http_enum(target):
+async def run_nmap_http_enum(target, port=80, scheme="http"):
     enabled = config.get_config_value("enabled", f"scanner:{module_name}")
     if not enabled:
         logger.debug(f"{Fore.LIGHTYELLOW_EX}[!]{Style.RESET_ALL} {module_name} scanning is disabled in the configuration.")
         return
-    
-    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} scan on {target}...")
-    
+
+    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} scan on {target}:{port}...")
+
     module_flags = config.get_tool_flags(module_name, "scanner")
 
-    result_file = config.get_target_scan_path(target) + f'{module_name}.txt'
+    result_file = config.get_target_scan_path(target) + f'{module_name}_{port}.txt'
 
-    cmd = ["nmap"] + module_flags + ["-oN", result_file] + [target]
+    cmd = ["nmap"] + module_flags + ["-p", str(port), "-oN", result_file] + [target]
 
     logger.debug(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Executing module: {cmd}")
     

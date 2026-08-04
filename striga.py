@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import subprocess
 import re
@@ -19,6 +20,7 @@ from enumeration.web import run_gobuster_enum
 from enumeration.web import run_dirbuster_enum
 from enumeration.web import run_whatweb_enum
 from enumeration.web import run_whois_enum
+from enumeration.web import run_webtech_enum
 from enumeration.smb import run_enum4linux_enum
 from enumeration.smb import run_smbclient_enum
 from enumeration.dns import run_dnsenum_enum
@@ -33,9 +35,12 @@ from evaluation import list_services
 from evaluation import get_services_list
 
 from exploitation import exploit_from_cve_results
+from exploitation import lookup_cves_for_target
 
 from scanner import run_nmap
-from scanner import run_scanners  
+from scanner import run_scanners
+from scanner import extract_web_ports
+from scanner import extract_all_ports
 
 def run_script(script_name, script_args):
     if not re.match(r'^[a-zA-Z0-9_]+$', script_name):
@@ -63,28 +68,84 @@ def run_script(script_name, script_args):
 
 def prepare_vuln_cache(target):
     config.vuln_cache_path = config.get_config_value("location", "framework") + '/' + config.scan_id + '/' + target + '/'
-    check_dir(config.vuln_cache_path)         
+    check_dir(config.vuln_cache_path)
     config.vuln_cache_file = config.vuln_cache_path + config.get_config_value("vuln_cache", "framework")
 
+
+def _promote_confirmed_web_ports(target, all_ports, web_ports):
+    """After whatweb/webtech have run against every open port, promote any port
+    nmap didn't tag as http but that webtech actually found product/version data
+    on into web_ports -- so ffuf/gobuster/dirbuster/nmap-http still only ever
+    target ports with real evidence of a web service, not every open port (which
+    would waste time/traffic brute-forcing e.g. an SSH port)."""
+    web_port_numbers = {e["port"] for e in web_ports}
+    promoted = list(web_ports)
+
+    for endpoint in all_ports:
+        port = endpoint["port"]
+        if port in web_port_numbers:
+            continue
+
+        webtech_file = config.get_target_scan_path(target) + f"webtech_{port}.json"
+        try:
+            with open(webtech_file, "r") as f:
+                products = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+
+        if products:
+            detected = ", ".join(products.keys())
+            logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Port {port} on {target} wasn't nmap-tagged as http, but webtech confirmed a web app there ({detected}) -- adding to brute-force targets.")
+            promoted.append(endpoint)
+            web_port_numbers.add(port)
+
+    return promoted
+
+
 async def enumeration(target):
-    """Performs scanning, then triggers enumeration asynchronously."""    
+    """Performs scanning, then triggers enumeration asynchronously."""
     check_dir(config.get_config_value("location", "framework") + '/' + config.scan_id + '/' + target + '/')
 
+    nmap_result_file = config.get_target_scan_path(target) + "nmap.txt"
+    if config.continue_scan and os.path.exists(nmap_result_file):
+        logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Continuing {config.scan_id}: cached scan/enumeration results found for {target}, skipping scanning and enumeration.")
+        return
+
     logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Scanning {target}...")
-    scan_results = await run_nmap(target) 
+    scan_results = await run_nmap(target)
 
     enum_tasks = []
     if "smb" in scan_results:
         enum_tasks.append(run_smbclient_enum(target))
         enum_tasks.append(run_enum4linux_enum(target))
-        
-    if "http" in scan_results:
-        enum_tasks.append(run_ffuf_enum(target))
-        enum_tasks.append(run_nmap_http_enum(target))
-        enum_tasks.append(run_gobuster_enum(target))
-        enum_tasks.append(run_dirbuster_enum(target))
-        enum_tasks.append(run_whatweb_enum(target))
+
+    all_ports = extract_all_ports(scan_results)
+    web_ports = extract_web_ports(scan_results)
+    if not web_ports and "http" in scan_results:
+        web_ports = [{"port": 80, "scheme": "http", "service": "http"}]
+        all_ports = all_ports or web_ports
+
+    if all_ports:
+        fingerprint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in all_ports)
+        logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Fingerprinting all open port(s) on {target}: {fingerprint_summary}")
+        fingerprint_tasks = []
+        for endpoint in all_ports:
+            fingerprint_tasks.append(run_whatweb_enum(target, endpoint["port"], endpoint["scheme"]))
+            fingerprint_tasks.append(run_webtech_enum(target, endpoint["port"], endpoint["scheme"]))
+        await asyncio.gather(*fingerprint_tasks)
+
+        web_ports = _promote_confirmed_web_ports(target, all_ports, web_ports)
+
+    if web_ports:
+        endpoint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in web_ports)
+        logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Web service(s) detected on {target}: {endpoint_summary}")
         enum_tasks.append(run_whois_enum(target))
+        for endpoint in web_ports:
+            port, scheme = endpoint["port"], endpoint["scheme"]
+            enum_tasks.append(run_ffuf_enum(target, port, scheme))
+            enum_tasks.append(run_nmap_http_enum(target, port, scheme))
+            enum_tasks.append(run_gobuster_enum(target, port, scheme))
+            enum_tasks.append(run_dirbuster_enum(target, port, scheme))
 
     if "dns" in scan_results:
         enum_tasks.append(run_dnsenum_enum(target))
@@ -107,13 +168,28 @@ async def exploiting(target, cve_file=None):
     vulnerabilities = ""
 
     if not cve_file:
-        if config.continue_scan and not os.path.exists(config.vuln_cache_file):
-            logger.log(f"{Fore.LIGHTRED_EX}[-]{Style.RESET_ALL} No cached scan results found for {target}.")
+        if config.continue_scan and os.path.exists(config.vuln_cache_file):
+            logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Continuing {config.scan_id}: reusing cached vulnerability scan results for {target} instead of re-scanning.")
+            with open(config.vuln_cache_file, "r") as f:
+                try:
+                    vulnerabilities = json.load(f)
+                except json.JSONDecodeError:
+                    vulnerabilities = ""
+
+        if not vulnerabilities:
+            if config.continue_scan:
+                logger.log(f"{Fore.LIGHTRED_EX}[-]{Style.RESET_ALL} No cached scan results found for {target}.")
             logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching vulnerability scanner on {target}...")
-            vulnerabilities = await run_scanners(target) 
-        elif not config.continue_scan:
-            logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching vulnerability scanner on {target}...")
-            vulnerabilities = await run_scanners(target) 
+            vulnerabilities = await run_scanners(target)
+
+        if isinstance(vulnerabilities, dict):
+            # Always merge webtech-derived CVEs, whether this run just scanned fresh
+            # or reused a cached vuln_results.json -- it's a cheap read of already
+            # -cached webtech_*.json fingerprint files, not a rescan, so there's no
+            # reason --continue should skip it.
+            webtech_cves = lookup_cves_for_target(target)
+            if webtech_cves:
+                vulnerabilities["webtech-cve"] = webtech_cves
 
     else:
         try:
@@ -125,6 +201,14 @@ async def exploiting(target, cve_file=None):
 
     logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Executing exploit launcher...")
     await exploit_from_cve_results(target, vulnerabilities)
+
+
+async def full_pipeline(target):
+    """Runs enumeration to completion before exploitation for a single target, so the
+    webtech fingerprint (used for CVE lookup) is guaranteed to exist before it's read.
+    Used by --auto-all instead of racing enumeration(target) and exploiting(target)."""
+    await enumeration(target)
+    await exploiting(target)
 
 
 def print_striga():
@@ -141,7 +225,31 @@ def print_striga():
 async def run_striga(args):
     if args.config:
         config.reinitialize(args.config)
-    
+        if args.debug:
+            config.debug = True
+
+    config.no_confirm = args.no_confirm
+
+    for module in args.enable_module or []:
+        if config.set_module_enabled(module, True):
+            logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Module {Fore.LIGHTCYAN_EX}{module}{Style.RESET_ALL} force-enabled for this run.")
+        else:
+            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} Unknown module: {module}. Use --list-modules/--list-scanners to see available names.")
+
+    for module in args.disable_module or []:
+        if config.set_module_enabled(module, False):
+            logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} Module {Fore.LIGHTCYAN_EX}{module}{Style.RESET_ALL} force-disabled for this run.")
+        else:
+            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} Unknown module: {module}. Use --list-modules/--list-scanners to see available names.")
+
+    if args.skip_github_poc:
+        config.set_module_enabled("github_exploit_search", False)
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} GitHub PoC index fallback disabled for this run (--skip-github-poc).")
+
+    if args.exploit_timeout is not None:
+        config.set_config_value("timeout", "sandbox", args.exploit_timeout)
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} Sandboxed PoC timeout set to {Fore.LIGHTCYAN_EX}{args.exploit_timeout}s{Style.RESET_ALL} for this run (--exploit-timeout).")
+
     config.clean_cache()
 
     targets = []
@@ -221,11 +329,7 @@ async def run_striga(args):
             await exploiting(target)
 
     if args.auto_all:
-        scan_tasks = [enumeration(target) for target in targets]
-
-        vuln_tasks = [exploiting(target) for target in targets]
-
-        await asyncio.gather(*scan_tasks, *vuln_tasks)
+        await asyncio.gather(*(full_pipeline(target) for target in targets))
 
         logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Execution complete.")
 
@@ -245,6 +349,8 @@ def main():
         run_script(args.script, args.script_args)
     elif args.service or args.list_services:
         run_presenter(args.service, args.show_id, args.list_services)
+    elif args.module:
+        run_presenter(args.service, args.show_id, module=args.module)
     elif args.list_modules:
         run_presenter(args.service, args.show_id, args.list_services, args.list_modules)
     elif args.list_scanners:

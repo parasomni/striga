@@ -6,7 +6,8 @@
         "gobuster",
         "nmap-http",
         "whatweb",
-        "whois"
+        "whois",
+        "webtech"
     ],
     "smb": [
         "enum4linux",
@@ -27,5 +28,8 @@
     ],
     "scanner": [
         "rustscan"
+    ],
+    "exploitation": [
+        "exploitation_summary"
     ]
 }
