@@ -23,70 +23,87 @@ After the install script has finished, striga can be executed by just typing `st
       /  ___/\   __\_  __ \  |/ ___\__  \  
       \___  \ |  |  |  | \/  / /_/  / __ \_
      /____  / |__|  |__|  |__\___  (____  /
-          \/                /_____/     \/ v1.1.0
+          \/                /_____/     \/ v1.2.0
 
 
-      [+] Starting striga v1.1.0 at 2026-01-21T21:42:07
-      usage: striga.py [-h] [--target TARGET] [--targets TARGETS] [--auto-enum] [--auto-exploit] [--auto-all]  [--scan]
-                      [--enum ENUM_SERVICE] [--exploit CVE_FILE] [--interactive] [--config CONFIG] [--log LOG] [--continue]
-                      [--continue-scanid CONTINUE_SCAN_ID] [--show-service SERVICE] [--list-services] [--list-modules]
-                      [--list-scanners] [--show-id SHOW_ID] [--debug] [--add-module ADD_MODULE] [--add-scanner ADD_SCANNER]
-                      [script] ...
+    [+] Starting striga v1.2.0 at 2026-01-21T21:42:07
+    usage: striga.py [-h] [--target TARGET] [--targets TARGETS] [--auto-enum] [--auto-exploit] [--auto-all]                 
+                    [--no-confirm][--skip-github-poc]
+                    [--exploit-timeout SECONDS] [--scan] [--enum ENUM_SERVICE] [--exploit CVE_FILE] [--interactive] [--config CONFIG] [--log LOG]
+                    [--continue] [--continue-scanid CONTINUE_SCAN_ID] [--show-service SERVICE] [--show-module MODULE] [--list-services]
+                    [--list-modules] [--list-scanners] [--show-id SHOW_ID] [--enable-module MODULE] [--disable-module MODULE] [--debug]
+                    [--add-module ADD_MODULE] [--add-scanner ADD_SCANNER]
+                    [script] ...
 
-      [Striga Attack Framework]
+    [Striga Attack Framework]
 
-      positional arguments:
-        script                Script to run from utils folder
-        script_args           Arguments for the script
+    positional arguments:
+      script                Script to run from utils folder
+      script_args           Arguments for the script
 
-      options:
-        -h, --help            show this help message and exit
+    options:
+      -h, --help            show this help message and exit
 
-      Target specification:
-        --target TARGET       Specify a single target (IP or domain)
-        --targets TARGETS     Specify a file with multiple targets
+    Target specification:
+      --target TARGET       Specify a single target (IP or domain)
+      --targets TARGETS     Specify a file with multiple targets
 
-      Automation:
-        --auto-enum           Enable automated enumeration
-        --auto-exploit        Enable automated exploitation
-        --auto-all            Enable full automation (scan -> enum -> exploit)
+    Automation:
+      --auto-enum           Enable automated enumeration
+      --auto-exploit        Enable automated exploitation
+      --auto-all            Enable full automation (scan -> enum -> exploit)
+      --no-confirm          Skip the confirmation prompt before executing a fetched GitHub PoC (default: ask)
+      --skip-github-poc     Skip the GitHub PoC index fallback entirely when Metasploit has no module for a CVE (equivalent to --disable-module
+                            github_exploit)
+      --exploit-timeout SECONDS
+                            Max seconds to let a sandboxed GitHub PoC run before killing it and moving to the next candidate (overrides
+                            sandbox.timeout in config.yaml, default 120)
 
-      Manual execution:
-        --scan                Run scanning module manually
-        --enum ENUM_SERVICE   Specify the service for manual enumeration (or <all> to include every service)
-        --exploit CVE_FILE    Run exploitation module manually by providing a file containing CVE's
-        --interactive         Run in interactive mode
+    Manual execution:
+      --scan                Run scanning module manually
+      --enum ENUM_SERVICE   Specify the service for manual enumeration (or <all> to include every service)
+      --exploit CVE_FILE    Run exploitation module manually by providing a file containing CVE's
+      --interactive         Run in interactive mode
 
-      General configuration:
-        --config CONFIG       Specify a custom configuration file
-        --log LOG             Specify a custom logging file
-        --continue            Continues the last scan
-        --continue-scanid CONTINUE_SCAN_ID
-                              Continues a scan by id
+    General configuration:
+      --config CONFIG       Specify a custom configuration file
+      --log LOG             Specify a custom logging file
+      --continue            Continues the last scan
+      --continue-scanid CONTINUE_SCAN_ID
+                            Continues a scan by id
 
-      Result presentation:
-        --show-service SERVICE
-                              Show the results of a specified service(e.g web, smb or all for including every service)
-        --list-services       List all available services to present
-        --list-modules        List all available enumeration modules
-        --list-scanners       List all available scanners
-        --show-id SHOW_ID     Specify a scan id to show results. If this option is not provided, the last scan id is used.
+    Result presentation:
+      --show-service SERVICE
+                            Show the results of a specified service(e.g web, smb or all for including every service)
+      --show-module MODULE  Show the saved results of a single module/tool (e.g. nmap, whatweb, ffuf) instead of a whole service. Use --list-
+                            modules/--list-scanners to see available names.
+      --list-services       List all available services to present
+      --list-modules        List all available enumeration modules
+      --list-scanners       List all available scanners
+      --show-id SHOW_ID     Specify a scan id to show results. If this option is not provided, the last scan id is used.
 
-      Developer options:
-        --debug               Enable debug mode
-        --add-module ADD_MODULE
-                              Specify the module name and service (eg. 'whatweb,web')
-        --add-scanner ADD_SCANNER
-                              Specify the scanner to add
+    Module control:
+      --enable-module MODULE
+                            Force-enable a module for this run (e.g. --enable-module nikto). Use --list-modules/--list-scanners to see names. Can
+                            be repeated.
+      --disable-module MODULE
+                            Force-disable a module for this run (e.g. --disable-module sqlmap). Can be repeated.
 
-      Available scripts in utils folder:
-        pwdfinder
-        revshells
+    Developer options:
+      --debug               Enable debug mode
+      --add-module ADD_MODULE
+                            Specify the module name and service (eg. 'whatweb,web')
+      --add-scanner ADD_SCANNER
+                            Specify the scanner to add
 
-      Examples:
-        python3 striga.py --target 10.10.14.109 --exploit cve_numbers.json
-        python3 striga.py --targets targets.txt --auto-all
-        python3 striga.py revshells -h
+    Available scripts in utils folder:
+      pwdfinder
+      revshells
+
+    Examples:
+      python3 striga.py --target 10.10.14.109 --exploit cve_numbers.json
+      python3 striga.py --targets targets.txt --auto-all
+      python3 striga.py revshells -h
 
 
 ## Scanning and Enumeration
@@ -100,6 +117,9 @@ To use this feature `--exploit` or `--auto-exploit` can be selected:
 
     python3 striga.py --target 10.10.14.109 --auto-exploit
     python3 striga.py --target 10.10.14.109 --exploit cve_numbers.json
+
+## Automation
+Striga's capabilities include auto exploitation. The `--auto-all` feature is used to start scanning open ports that are used to identify vulnerable services. After searching for existing CVE's related to the identified service versions, either metasploit or GitHub is used to find existing PoC Exploits matching the found vulnerabilites. To ensure a safe execution of public GitHub Exploits a restricted docker container is setup to execute them in a dedicated environment including proper network and system restriction. For GitHub PoC's to succeed a listener should be created on the attacker device: `nc -lnvp 4444`. This additional step is not required for most metasploit exploits.
 
 ## Evaluation
 After a successfull target enumeration the `--show-service` option can be used to print the results based on the selected service.
