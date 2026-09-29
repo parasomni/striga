@@ -3,9 +3,14 @@ import subprocess
 from colorama import Fore, Style
 from core import config, logger, curl_style_vhost_flags
 
-module_name = "gobuster"
+module_name = "feroxbuster"
 
-async def run_gobuster_enum(target, port=80, scheme="http", host=None):
+async def run_feroxbuster_enum(target, port=80, scheme="http", host=None):
+    """Fast recursive content discovery (Rust). A performance-oriented alternative
+    to gobuster/dirbuster: bounded recursion depth and a scan limit keep it from
+    exploding into an unbounded crawl while still finding nested paths those
+    single-level tools miss. Same (target, port, scheme) + per-port result-file
+    shape as the other web-enum modules."""
     enabled = config.get_config_value("enabled", f"scanner:{module_name}")
     if not enabled:
         logger.debug(f"{Fore.LIGHTYELLOW_EX}[!]{Style.RESET_ALL} {module_name} scanning is disabled in the configuration.")
@@ -20,12 +25,15 @@ async def run_gobuster_enum(target, port=80, scheme="http", host=None):
 
     result_file = config.get_target_scan_path(target) + f'{module_name}_{port}.txt'
 
-    cmd = [module_name] + module_flags + vhost_flags + ["-u", url] + ["-o", result_file]
-    
+    # -k (insecure TLS) is safe/expected against lab https endpoints with self-signed
+    # certs; --silent keeps stdout clean since results go to the -o file. vhost_flags
+    # adds the Host header when fingerprinting found a distinct virtual host.
+    cmd = [module_name, "-u", url, "-o", result_file] + module_flags + vhost_flags
+
     logger.debug(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Executing module: {cmd}")
 
     process = await asyncio.create_subprocess_exec(
-        *cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE
+        *cmd, stdout=subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE
     )
 
     try:

@@ -68,7 +68,22 @@ class ConfigManager:
         check_dir(self.cache_path)
 
     def clean_cache(self):
-        os.system(f"rm -rf {self.cache_path}/*")
+        # Clear the cache dir contents without shelling out to `rm -rf` on an
+        # interpolated path (a space or stray glob in cache_path would make that
+        # dangerous, and os.system blocks the event loop). Only ever touches the
+        # framework's own .cache dir, never the caller's cwd.
+        import shutil
+        if not self.cache_path or not os.path.isdir(self.cache_path):
+            return
+        for entry in os.listdir(self.cache_path):
+            path = os.path.join(self.cache_path, entry)
+            try:
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path)
+                else:
+                    os.unlink(path)
+            except OSError:
+                pass
 
     def save_scan_id(self):
         with open(self.last_scan_file, "w") as f:

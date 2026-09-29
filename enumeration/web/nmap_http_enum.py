@@ -5,7 +5,7 @@ from core import config, logger
 
 module_name = "nmap-http"
 
-async def run_nmap_http_enum(target, port=80, scheme="http"):
+async def run_nmap_http_enum(target, port=80, scheme="http", host=None):
     enabled = config.get_config_value("enabled", f"scanner:{module_name}")
     if not enabled:
         logger.debug(f"{Fore.LIGHTYELLOW_EX}[!]{Style.RESET_ALL} {module_name} scanning is disabled in the configuration.")
@@ -15,9 +15,13 @@ async def run_nmap_http_enum(target, port=80, scheme="http"):
 
     module_flags = config.get_tool_flags(module_name, "scanner")
 
+    # Route the http-* NSE scripts at the discovered vhost via the http.host library
+    # arg, so they send the right Host header while still connecting to the target IP.
+    host_args = ["--script-args", f"http.host={host}"] if (host and host != target) else []
+
     result_file = config.get_target_scan_path(target) + f'{module_name}_{port}.txt'
 
-    cmd = ["nmap"] + module_flags + ["-p", str(port), "-oN", result_file] + [target]
+    cmd = ["nmap"] + module_flags + host_args + ["-p", str(port), "-oN", result_file] + [target]
 
     logger.debug(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Executing module: {cmd}")
     

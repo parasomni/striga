@@ -6,6 +6,9 @@ from colorama import Fore, Style
 from core import logger
 from core import config
 from core import check_dir
+from core import bounded_gather
+from core import select_vhost
+from core import suggest_unresolved_hosts
 
 from enumeration.web import run_ffuf_enum
 from enumeration.web import run_nmap_http_enum
@@ -14,14 +17,20 @@ from enumeration.web import run_dirbuster_enum
 from enumeration.web import run_whatweb_enum
 from enumeration.web import run_whois_enum
 from enumeration.web import run_webtech_enum
+from enumeration.web import run_feroxbuster_enum
+from enumeration.web import run_sslscan_enum
+from enumeration.web import run_wpscan_enum
+from enumeration.web import run_vhostfuzz_enum
 from enumeration.smb import run_enum4linux_enum
 from enumeration.smb import run_smbclient_enum
+from enumeration.smb import run_smbmap_enum
 from enumeration.dns import run_dnsenum_enum
 from enumeration.dns import run_nslookup_enum
+from enumeration.snmp import run_snmpbulkwalk_enum
 from enumeration.sql import run_sqlmap_enum
 from enumeration.ldap import run_ldapsearch_enum
 
-from scanner import extract_web_ports, extract_all_ports
+from scanner import extract_web_ports, extract_all_ports, extract_hostnames
 
 from evaluation import get_services_list
 
@@ -102,30 +111,46 @@ async def run_enumerator(target, service):
     if service in ["smb", "all"]:
         enum_tasks.append(run_smbclient_enum(target))
         enum_tasks.append(run_enum4linux_enum(target))
+        enum_tasks.append(run_smbmap_enum(target))
+    if service in ["snmp", "all"]:
+        enum_tasks.append(run_snmpbulkwalk_enum(target))
     if service in ["web", "all"]:
         all_ports = _discover_all_ports(target)
         fingerprint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in all_ports)
         logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Fingerprinting all open port(s) on {target}: {fingerprint_summary}")
+        # webtech_enum runs whatweb internally; a separate whatweb_enum pass would
+        # just double the whatweb launches per port. Fingerprint via webtech only.
         fingerprint_tasks = []
         for endpoint in all_ports:
-            fingerprint_tasks.append(run_whatweb_enum(target, endpoint["port"], endpoint["scheme"]))
             fingerprint_tasks.append(run_webtech_enum(target, endpoint["port"], endpoint["scheme"]))
-        await asyncio.gather(*fingerprint_tasks)
+        await bounded_gather(fingerprint_tasks)
 
         web_ports = _promote_confirmed_web_ports(target, all_ports, _discover_web_ports(target))
         endpoint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in web_ports)
         logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Web enumeration targets for {target}: {endpoint_summary}")
 
+        # Extract a virtual host from the cached nmap output (cert/redirect/rDNS) so
+        # standalone --enum web also routes at the real hostname, not just the IP.
+        hostnames = extract_hostnames(_read_cached_nmap_output(target) or "")
+        vhost = select_vhost(target, hostnames)
+        if vhost:
+            logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Using virtual host {Fore.LIGHTCYAN_EX}{vhost}{Style.RESET_ALL} for web enumeration on {target}.")
+        suggest_unresolved_hosts(hostnames, target)
+
         enum_tasks.append(run_whois_enum(target))
         for endpoint in web_ports:
             port, scheme = endpoint["port"], endpoint["scheme"]
-            enum_tasks.append(run_ffuf_enum(target, port, scheme))
-            enum_tasks.append(run_nmap_http_enum(target, port, scheme))
-            enum_tasks.append(run_gobuster_enum(target, port, scheme))
-            enum_tasks.append(run_dirbuster_enum(target, port, scheme))
+            enum_tasks.append(run_ffuf_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_nmap_http_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_gobuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_dirbuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_feroxbuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_sslscan_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_wpscan_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_vhostfuzz_enum(target, port, scheme, host=vhost))
     if service in ["dns", "all"]:
-        enum_tasks.append(run_nslookup_enum)
-        enum_tasks.append(run_dnsenum_enum)
+        enum_tasks.append(run_nslookup_enum(target))
+        enum_tasks.append(run_dnsenum_enum(target))
     if service in ["sql", "all"]:
         enum_tasks.append(run_sqlmap_enum(target))
     if service in ["ldap", "all"]:
@@ -133,6 +158,6 @@ async def run_enumerator(target, service):
 
 
     if enum_tasks:
-        await asyncio.gather(*enum_tasks)
+        await bounded_gather(enum_tasks)
 
     logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Enumerator completed for {target}.")

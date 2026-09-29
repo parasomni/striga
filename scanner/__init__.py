@@ -4,7 +4,7 @@ from .nmap_vuln_scanner import run_nmap_vuln_scan
 from .scanner import run_scanners
 from .nuclei_vuln_scanner import run_nuclei_vuln_scan
 from .rustscan_scanner import run_rustscan_scan
-from .port_utils import extract_web_ports, extract_all_ports
+from .port_utils import extract_web_ports, extract_all_ports, extract_open_port_numbers, extract_hostnames, is_ip_literal
 
 __all__ = [
     "run_nmap",
@@ -14,5 +14,8 @@ __all__ = [
     "run_nuclei_vuln_scan",
     "run_rustscan_scan",
     "extract_web_ports",
-    "extract_all_ports"
+    "extract_all_ports",
+    "extract_open_port_numbers",
+    "extract_hostnames",
+    "is_ip_literal"
 ]

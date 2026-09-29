@@ -19,7 +19,7 @@ async def run_rustscan_scan(target):
 
     logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} on {target}...")
 
-    cmd = [module_name] + ["-a", target] + [rustscan_flags]
+    cmd = [module_name] + ["-a", target] + rustscan_flags
 
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -42,7 +42,7 @@ def parse_rustscan_results(stdout):
         if not output:
             return []  
 
-        results = output.split("") 
+        results = output.splitlines()
         vulnerabilities = []
 
         for line in results:

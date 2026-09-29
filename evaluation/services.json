@@ -7,11 +7,16 @@
         "nmap-http",
         "whatweb",
         "whois",
-        "webtech"
+        "webtech",
+        "feroxbuster",
+        "sslscan",
+        "wpscan",
+        "vhostfuzz"
     ],
     "smb": [
         "enum4linux",
-        "smbclient"
+        "smbclient",
+        "smbmap"
     ],
     "snmp": [
         "snmpbulkwalk"

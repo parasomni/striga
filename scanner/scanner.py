@@ -10,6 +10,7 @@ from core import config
 from core import gen_id
 from core import logger
 from core import check_dir
+from core import bounded_gather
 
 async def run_rustscan_scan(target):
     from scanner import run_rustscan_scan
@@ -60,7 +61,7 @@ async def run_all_scanners(target):
         "rustscan": run_rustscan_scan(target)
     }
     
-    results = await asyncio.gather(*tasks.values())
+    results = await bounded_gather(list(tasks.values()))
 
     merged_results = {name: result for name, result in zip(tasks.keys(), results) if result}
 

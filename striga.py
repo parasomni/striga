@@ -13,6 +13,9 @@ from core import logger
 from core import check_dir
 from core import run_scanner_adder
 from core import run_module_adder
+from core import bounded_gather
+from core import select_vhost
+from core import suggest_unresolved_hosts
 
 from enumeration.web import run_ffuf_enum
 from enumeration.web import run_nmap_http_enum
@@ -21,10 +24,16 @@ from enumeration.web import run_dirbuster_enum
 from enumeration.web import run_whatweb_enum
 from enumeration.web import run_whois_enum
 from enumeration.web import run_webtech_enum
+from enumeration.web import run_feroxbuster_enum
+from enumeration.web import run_sslscan_enum
+from enumeration.web import run_wpscan_enum
+from enumeration.web import run_vhostfuzz_enum
 from enumeration.smb import run_enum4linux_enum
 from enumeration.smb import run_smbclient_enum
+from enumeration.smb import run_smbmap_enum
 from enumeration.dns import run_dnsenum_enum
 from enumeration.dns import run_nslookup_enum
+from enumeration.snmp import run_snmpbulkwalk_enum
 from enumeration.sql import run_sqlmap_enum
 from enumeration.ldap import run_ldapsearch_enum
 from scanner import run_rustscan_scan
@@ -34,6 +43,12 @@ from evaluation import run_presenter
 from evaluation import list_services
 from evaluation import get_services_list
 
+# NB: the evaluation.ai layer is imported lazily inside run_ai_evaluation() /
+# _ai_collect_findings(), never at module top level. It pulls in an LLM backend
+# client and is entirely optional -- a missing/broken AI layer (absent client,
+# uninstalled backend dep) must degrade to "AI eval skipped", not take down the
+# whole framework's scanning/enumeration/exploitation on import.
+
 from exploitation import exploit_from_cve_results
 from exploitation import lookup_cves_for_target
 
@@ -41,6 +56,7 @@ from scanner import run_nmap
 from scanner import run_scanners
 from scanner import extract_web_ports
 from scanner import extract_all_ports
+from scanner import extract_hostnames
 
 def run_script(script_name, script_args):
     if not re.match(r'^[a-zA-Z0-9_]+$', script_name):
@@ -102,6 +118,242 @@ def _promote_confirmed_web_ports(target, all_ports, web_ports):
     return promoted
 
 
+
+# --- AI evaluation integration ------------------------------------------------
+# Runs the local LLM findings-evaluation layer over a finished scan's saved tool
+# output. Deterministic layer (evaluation/ai) verifies evidence, grounds CVEs,
+# aligns severity to CVSS and flags low-confidence items; the model only triages.
+
+_AI_BINARY_EXTS = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".pdf",
+    ".pcap", ".pcapng", ".bin", ".gz", ".zip", ".tar", ".7z", ".so", ".o", ".exe",
+}
+
+# Best-effort module -> service grouping so the report reads by service. Unknown
+# modules fall back to "misc"; add new tools here as you extend the framework.
+_AI_SERVICE_BY_MODULE = {
+    "nmap": "scan", "rustscan": "scan",
+    "ffuf": "web", "gobuster": "web", "dirbuster": "web", "whatweb": "web",
+    "webtech": "web", "whois": "web", "nmap_http": "web", "http": "web",
+    "feroxbuster": "web", "sslscan": "web", "wpscan": "web", "vhostfuzz": "web",
+    "smbclient": "smb", "enum4linux": "smb", "smbmap": "smb",
+    "dnsenum": "dns", "nslookup": "dns",
+    "snmpbulkwalk": "snmp",
+    "sqlmap": "sql",
+    "ldapsearch": "ldap",
+    "vuln_results": "vuln",
+}
+
+
+def _ai_llm_cfg():
+    """Assemble the llm config dict from the [llm] section of config.yaml,
+    tolerating a missing section/keys so the framework runs without it."""
+    def val(key, default=None):
+        try:
+            v = config.get_config_value(key, "llm")
+            return default if v is None else v
+        except Exception:
+            return default
+    return {
+        "enabled": val("enabled", True),
+        "provider": val("provider", "ollama"),
+        "model": val("model", "qwen2.5:14b-instruct"),
+        "base_url": val("base_url", "http://127.0.0.1:11434"),
+        "api_key_file": val("api_key_file", None),
+        "timeout": val("timeout", 120),
+        "temperature": val("temperature", 0.0),
+        "max_input_chars": val("max_input_chars", 12000),
+        "chunk_overlap_chars": val("chunk_overlap_chars", 400),
+        "max_chunks_per_finding": val("max_chunks_per_finding", 20),
+        "review_min_confidence": val("review_min_confidence", 0.5),
+        "review_max_fp": val("review_max_fp", 0.5),
+        "drop_below_confidence": val("drop_below_confidence", None),
+        "output_format": val("output_format", "markdown"),
+    }
+
+
+def _ai_module_name(filename):
+    """nmap.txt -> nmap, whatweb_80.json -> whatweb, webtech_8080.json -> webtech."""
+    stem = os.path.splitext(filename)[0]
+    return re.sub(r"_\d+$", "", stem)
+
+
+def _ai_vuln_cache_path(target):
+    base = config.get_config_value("location", "framework") + '/' + config.scan_id + '/' + target + '/'
+    return base + config.get_config_value("vuln_cache", "framework")
+
+
+def _ai_target_cves(target):
+    """Ground CVEs from the target's vulnerability cache so the evaluator can
+    validate any CVE the model claims. Returns a de-duplicated list of CVE ids."""
+    ids = set()
+    try:
+        with open(_ai_vuln_cache_path(target), "r", errors="replace") as f:
+            ids.update(m.upper() for m in re.findall(r"CVE-\d{4}-\d{4,7}", f.read(), re.IGNORECASE))
+    except Exception:
+        pass
+    return sorted(ids)
+
+
+# vulners/nmap-vuln NSE prints "CVE-XXXX-YYYY\t<cvss>\t<url>". The (?!\d) stops the
+# CVE id matching a prefix of a longer number (so CVE-2021-41773 isn't read as
+# CVE-2021-4177 + "3"); the bounded numeric (0-9.x, 10 or 10.0) and <=6 non-digit
+# gap keep it from pairing a CVE with an unrelated nearby number.
+_CVSS_PAIR_RE = re.compile(r"(CVE-\d{4}-\d{4,7})(?!\d)\D{0,6}((?:10(?:\.0)?)|[0-9](?:\.[0-9])?)")
+
+
+def _walk_cvss(node, scores):
+    """Recursively pull {cve: cvss} pairs out of parsed scanner JSON. Handles
+    nuclei's info.classification ({"cve-id": [...], "cvss-score": 7.5}) at any
+    nesting depth, keying off whichever field spelling the tool used."""
+    if isinstance(node, dict):
+        score = node.get("cvss-score", node.get("cvss_score"))
+        cves = node.get("cve-id") or node.get("cve_id") or node.get("cve")
+        if score is not None and cves:
+            try:
+                s = float(score)
+            except (TypeError, ValueError):
+                s = None
+            if s is not None and 0.0 <= s <= 10.0:
+                for cve in (cves if isinstance(cves, list) else [cves]):
+                    key = str(cve).strip().upper()
+                    if key:
+                        scores[key] = max(scores.get(key, 0.0), s)
+        for value in node.values():
+            _walk_cvss(value, scores)
+    elif isinstance(node, list):
+        for value in node:
+            _walk_cvss(value, scores)
+
+
+def _ai_target_cvss(target):
+    """Best-effort {CVE: cvss_score} harvested from artifacts already on disk (the
+    vuln cache: nuclei classification scores + vulners/nmap-vuln 'CVE  CVSS' lines).
+    No network calls -- lets the evaluator align severity to CVSS deterministically
+    instead of trusting the model's severity guess. Empty when nothing scored is
+    cached yet (e.g. --auto-enum without an exploitation/vuln-scan pass)."""
+    scores = {}
+    try:
+        with open(_ai_vuln_cache_path(target), "r", errors="replace") as f:
+            text = f.read()
+    except Exception:
+        return {}
+
+    # Structural pass: the cache is {scanner: result}, where a result may itself be
+    # a JSON-encoded string (nuclei-vuln/nmap-vuln are stored as json.dumps(...)).
+    try:
+        cache = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        cache = None
+    if cache is not None:
+        def _maybe_decode(value):
+            if isinstance(value, str):
+                try:
+                    return json.loads(value)
+                except (json.JSONDecodeError, ValueError):
+                    return value
+            return value
+        if isinstance(cache, dict):
+            for value in cache.values():
+                _walk_cvss(_maybe_decode(value), scores)
+        else:
+            _walk_cvss(cache, scores)
+
+    # Text pass: catches vulners.nse "CVE  CVSS" lines that aren't structured JSON.
+    for cve, score in _CVSS_PAIR_RE.findall(text):
+        try:
+            s = float(score)
+        except ValueError:
+            continue
+        key = cve.upper()
+        scores[key] = max(scores.get(key, 0.0), s)
+
+    return scores
+
+
+def _ai_collect_findings(target):
+    """Read the target's saved tool outputs into RawFindings. Skips binary files
+    and the evaluator's own report; derives module/service from the file name."""
+    from evaluation.ai.schema import RawFinding
+
+    scan_path = config.get_target_scan_path(target)
+    if not os.path.isdir(scan_path):
+        return []
+    cve_ids = _ai_target_cves(target)
+    cvss = _ai_target_cvss(target)
+    base_context = {}
+    if cve_ids:
+        base_context["cve_ids"] = cve_ids
+    if cvss:
+        base_context["cvss"] = cvss
+    findings = []
+    for name in sorted(os.listdir(scan_path)):
+        if name.startswith("ai_evaluation."):
+            continue
+        path = os.path.join(scan_path, name)
+        if not os.path.isfile(path):
+            continue
+        if os.path.splitext(name)[1].lower() in _AI_BINARY_EXTS:
+            continue
+        try:
+            with open(path, "rb") as fh:
+                blob = fh.read()
+        except OSError:
+            continue
+        if b"\x00" in blob[:8192]:
+            continue
+        raw = blob.decode("utf-8", "replace")
+        if not raw.strip():
+            continue
+        module = _ai_module_name(name)
+        service = _AI_SERVICE_BY_MODULE.get(module, "misc")
+        findings.append(RawFinding(
+            scan_id=config.scan_id, target=target, service=service, module=module,
+            raw=raw, context=dict(base_context),
+        ))
+    return findings
+
+
+def run_ai_evaluation(args, target):
+    """Evaluate a finished scan's findings with the local LLM layer. Gated by
+    --ai-eval / --no-ai-eval (CLI) over llm.enabled (config.yaml). The AI layer is
+    optional: if it can't be imported (missing client, uninstalled backend), log
+    and skip rather than letting it propagate out of a finished scan."""
+    try:
+        from evaluation.ai import build_evaluator, is_ai_enabled, render
+    except Exception as error:  # noqa: BLE001 - optional layer, never fatal
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} AI evaluation layer unavailable ({error}); skipping.")
+        return
+
+    llm_cfg = _ai_llm_cfg()
+    if not is_ai_enabled(llm_cfg, cli_override=getattr(args, "ai_eval", None)):
+        return
+
+    evaluator = build_evaluator(llm_cfg)
+    if not evaluator.client.health():
+        logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} AI evaluation skipped: LLM backend unreachable at {Fore.LIGHTCYAN_EX}{llm_cfg.get('base_url')}{Style.RESET_ALL}")
+        return
+
+    findings = _ai_collect_findings(target)
+    if not findings:
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} AI evaluation: no results to evaluate for {target}.")
+        return
+
+    fmt = getattr(args, "ai_format", None) or llm_cfg.get("output_format", "markdown")
+    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Running AI evaluation for {Fore.LIGHTCYAN_EX}{target}{Style.RESET_ALL} ({len(findings)} module output(s))...")
+    report = render(evaluator.evaluate(findings), fmt, source=findings)
+    logger.log(report)
+
+    ext = {"markdown": "md", "json": "json", "table": "txt"}.get(fmt, "txt")
+    out_path = os.path.join(config.get_target_scan_path(target), f"ai_evaluation.{ext}")
+    try:
+        with open(out_path, "w") as fh:
+            fh.write(report)
+        logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} AI evaluation saved to {Fore.LIGHTCYAN_EX}{out_path}{Style.RESET_ALL}")
+    except OSError as error:
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} Could not write AI evaluation report: {error}")
+
+
 async def enumeration(target):
     """Performs scanning, then triggers enumeration asynchronously."""
     check_dir(config.get_config_value("location", "framework") + '/' + config.scan_id + '/' + target + '/')
@@ -118,6 +370,10 @@ async def enumeration(target):
     if "smb" in scan_results:
         enum_tasks.append(run_smbclient_enum(target))
         enum_tasks.append(run_enum4linux_enum(target))
+        enum_tasks.append(run_smbmap_enum(target))
+
+    if "snmp" in scan_results:
+        enum_tasks.append(run_snmpbulkwalk_enum(target))
 
     all_ports = extract_all_ports(scan_results)
     web_ports = extract_web_ports(scan_results)
@@ -128,28 +384,45 @@ async def enumeration(target):
     if all_ports:
         fingerprint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in all_ports)
         logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Fingerprinting all open port(s) on {target}: {fingerprint_summary}")
+        # webtech_enum already runs whatweb (--log-json -a 3) internally plus the
+        # Wappalyzer/httpx supplements, so a separate whatweb_enum pass here would
+        # just launch whatweb a second time per port. Fingerprint via webtech only.
         fingerprint_tasks = []
         for endpoint in all_ports:
-            fingerprint_tasks.append(run_whatweb_enum(target, endpoint["port"], endpoint["scheme"]))
             fingerprint_tasks.append(run_webtech_enum(target, endpoint["port"], endpoint["scheme"]))
-        await asyncio.gather(*fingerprint_tasks)
+        await bounded_gather(fingerprint_tasks)
 
         web_ports = _promote_confirmed_web_ports(target, all_ports, web_ports)
 
     if web_ports:
+        # Pull any virtual-host / DNS name out of the scan (TLS cert CN/SAN, HTTP
+        # redirect, rDNS) so web enum targets the real hostname instead of the bare
+        # IP -- name-based vhosts serve the wrong site by IP and SNI TLS needs the
+        # name. Routed via Host header / SNI (non-persistent); unresolved names get
+        # an /etc/hosts suggestion for tools that need real DNS.
+        hostnames = extract_hostnames(scan_results)
+        vhost = select_vhost(target, hostnames)
+        if vhost:
+            logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Using virtual host {Fore.LIGHTCYAN_EX}{vhost}{Style.RESET_ALL} for web enumeration on {target}.")
+        suggest_unresolved_hosts(hostnames, target)
+
         endpoint_summary = ", ".join(f"{e['scheme']}://{target}:{e['port']}" for e in web_ports)
         logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Web service(s) detected on {target}: {endpoint_summary}")
         enum_tasks.append(run_whois_enum(target))
         for endpoint in web_ports:
             port, scheme = endpoint["port"], endpoint["scheme"]
-            enum_tasks.append(run_ffuf_enum(target, port, scheme))
-            enum_tasks.append(run_nmap_http_enum(target, port, scheme))
-            enum_tasks.append(run_gobuster_enum(target, port, scheme))
-            enum_tasks.append(run_dirbuster_enum(target, port, scheme))
+            enum_tasks.append(run_ffuf_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_nmap_http_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_gobuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_dirbuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_feroxbuster_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_sslscan_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_wpscan_enum(target, port, scheme, host=vhost))
+            enum_tasks.append(run_vhostfuzz_enum(target, port, scheme, host=vhost))
 
     if "dns" in scan_results:
         enum_tasks.append(run_dnsenum_enum(target))
-        enum_tasks.append(run_nslookup_enum)
+        enum_tasks.append(run_nslookup_enum(target))
 
     if "sql" in scan_results:
         enum_tasks.append(run_sqlmap_enum(target))
@@ -158,7 +431,7 @@ async def enumeration(target):
         enum_tasks.append(run_ldapsearch_enum(target))
 
     if enum_tasks:
-        await asyncio.gather(*enum_tasks)
+        await bounded_gather(enum_tasks)
     logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Enumeration completed for {target}.")
 
 
@@ -323,13 +596,21 @@ async def run_striga(args):
     if args.auto_enum:
         for target in targets:
             await enumeration(target)
+            run_ai_evaluation(args, target)
 
     if args.auto_exploit:
         for target in targets:
             await exploiting(target)
 
     if args.auto_all:
+        # Orchestrator coroutines (not leaf subprocess tasks): keep an unbounded
+        # gather across targets so cross-target concurrency is preserved. The
+        # shared semaphore inside each target's leaf gathers (enumeration's task
+        # fan-out, run_scanners) is what actually caps total live subprocesses.
         await asyncio.gather(*(full_pipeline(target) for target in targets))
+
+        for target in targets:
+            run_ai_evaluation(args, target)
 
         logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Execution complete.")
 

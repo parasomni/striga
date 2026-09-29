@@ -1,28 +1,26 @@
 import asyncio
 import subprocess
 from colorama import Fore, Style
-from core import config, logger, curl_style_vhost_flags
+from core import config, logger
 
-module_name = "ffuf"
+module_name = "smbmap"
 
-async def run_ffuf_enum(target, port=80, scheme="http", host=None):
+async def run_smbmap_enum(target):
+    """SMB share + permission enumeration. Complements enum4linux/smbclient: smbmap
+    reports per-share READ/WRITE access at a glance, which is usually the first
+    thing you want on an open SMB service and is cheap to obtain."""
     enabled = config.get_config_value("enabled", f"scanner:{module_name}")
     if not enabled:
         logger.debug(f"{Fore.LIGHTYELLOW_EX}[!]{Style.RESET_ALL} {module_name} scanning is disabled in the configuration.")
         return
 
-    # Connect to the reachable target; route the discovered vhost via a Host header
-    # (and -k on https) rather than depending on DNS for the name.
-    url = f"{scheme}://{target}:{port}/FUZZ"
-
-    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} scan on {url}" + (f" (vhost {host})" if host and host != target else "") + "...")
+    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} scan on {target}...")
 
     module_flags = config.get_tool_flags(module_name, "scanner")
-    vhost_flags = curl_style_vhost_flags(host, target, scheme, module_flags)
 
-    result_file = config.get_target_scan_path(target) + f'{module_name}_{port}.txt'
+    result_file = config.get_target_scan_path(target) + f'{module_name}.txt'
 
-    cmd = [module_name] + module_flags + vhost_flags + ["-u", url]
+    cmd = [module_name, "-H", target] + module_flags
 
     logger.debug(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Executing module: {cmd}")
 
@@ -38,14 +36,14 @@ async def run_ffuf_enum(target, port=80, scheme="http", host=None):
         except asyncio.TimeoutError:
             process.kill()
             await process.wait()
-            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} {module_name} scan timed out for {url}.")
+            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} {module_name} scan timed out for {target}.")
             return {}
 
         if process.returncode != 0:
-            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} {module_name} scan failed for {url}: {stderr.decode()}")
+            logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} {module_name} scan failed for {target}: {stderr.decode()}")
             return {}
 
     logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} {module_name} results written to {Fore.LIGHTCYAN_EX}{result_file}{Style.RESET_ALL}")
-    logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} {module_name} scan finished for {url}.")
+    logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} {module_name} scan finished for {target}.")
 
     return {}

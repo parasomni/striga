@@ -43,6 +43,7 @@ class ArgumentParser:
         manual_group = self.parser.add_argument_group("Manual execution")
         general_group = self.parser.add_argument_group("General configuration")
         result_group = self.parser.add_argument_group("Result presentation")
+        ai_group = self.parser.add_argument_group("AI evaluation")
         module_group = self.parser.add_argument_group("Module control")
         developer_group = self.parser.add_argument_group("Developer options")
         
@@ -72,6 +73,11 @@ class ArgumentParser:
         result_group.add_argument("--list-modules", action="store_true", help="List all available enumeration modules")
         result_group.add_argument("--list-scanners", action="store_true", help="List all available scanners")
         result_group.add_argument("--show-id", help="Specify a scan id to show results. If this option is not provided, the last scan id is used.")
+
+        ai_toggle = ai_group.add_mutually_exclusive_group()
+        ai_toggle.add_argument("--ai-eval", dest="ai_eval", action="store_true", default=None, help="Force-enable AI evaluation of findings for this run (overrides llm.enabled in config.yaml)")
+        ai_toggle.add_argument("--no-ai-eval", dest="ai_eval", action="store_false", default=None, help="Force-disable AI evaluation of findings for this run (overrides llm.enabled in config.yaml)")
+        ai_group.add_argument("--ai-format", dest="ai_format", choices=["markdown", "json", "table"], help="Output format for the AI evaluation report (overrides llm.output_format in config.yaml)")
 
         module_group.add_argument("--enable-module", action="append", metavar="MODULE", help="Force-enable a module for this run (e.g. --enable-module nikto). Use --list-modules/--list-scanners to see names. Can be repeated.")
         module_group.add_argument("--disable-module", action="append", metavar="MODULE", help="Force-disable a module for this run (e.g. --disable-module sqlmap). Can be repeated.")

@@ -5,13 +5,17 @@ from core import config, logger
 
 module_name = "dirbuster"
 
-async def run_dirbuster_enum(target, port=80, scheme="http"):
+async def run_dirbuster_enum(target, port=80, scheme="http", host=None):
     enabled = config.get_config_value("enabled", f"scanner:{module_name}")
     if not enabled:
         logger.debug(f"{Fore.LIGHTYELLOW_EX}[!]{Style.RESET_ALL} {module_name} scanning is disabled in the configuration.")
         return
 
-    url = f"{scheme}://{target}:{port}/"
+    # dirbuster has no Host-header override, so it must use a resolvable name in the
+    # URL -- prefer the discovered vhost (relies on it resolving; see the /etc/hosts
+    # suggestion striga prints when it doesn't).
+    conn_host = host or target
+    url = f"{scheme}://{conn_host}:{port}/"
 
     logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Launching {module_name} scan on {url}...")
 

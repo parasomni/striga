@@ -1,6 +1,6 @@
 framework:
   name: striga attack framework
-  version: 1.2.0
+  version: 1.3.0
   location: /etc/striga
   logging_dir: logs
   logging_file: framework.log
@@ -50,6 +50,38 @@ sandbox:
     php: php:8-cli-alpine
 performance:
   use_cache: true
+  # Max enumeration/scan subprocesses running at once across the whole run (all
+  # targets/ports/tools). Bounds fan-out so parallelism speeds things up instead
+  # of thrashing the host and tripping target-side rate limiting.
+  max_concurrency: 24
+  # Two-phase nmap: a fast port-discovery sweep (no -sV) followed by service/
+  # version detection on only the open ports, instead of running -sV across all
+  # 65535 ports. This is the single biggest scan-time reducer. Set false to fall
+  # back to the old single-command scan using scanner.nmap.flags verbatim.
+  two_phase_scan: true
+  discovery_min_rate: 2000
+  # Run ssl-cert + http-title NSE in the (port-scoped) service phase so the scan
+  # reveals TLS cert names and HTTP redirect hostnames -- these become vhost
+  # targets for web enum. Cheap because it only touches already-open ports.
+  hostname_scripts: true
+web_enum:
+  # Route web-enum tools at the virtual host discovered in the scan (via Host
+  # header / TLS SNI, no /etc/hosts changes). Set false to always use the bare
+  # target address.
+  use_vhost: true
+
+llm:
+  enabled: true              
+  provider: ollama
+  model: qwen2.5:14b-instruct
+  base_url: http://127.0.0.1:11434
+  max_input_chars: 12000      
+  chunk_overlap_chars: 400
+  review_min_confidence: 0.5 
+  review_max_fp: 0.5          
+  drop_below_confidence: null 
+  output_format: markdown
+
 scanner:
   nmap:
     enabled: true
@@ -57,6 +89,8 @@ scanner:
     - -sV
     - -p-
     - --min-rate=1000
+    - -Pn
+    - -T4
   nmap-http:
     enabled: false
     flags:
@@ -77,6 +111,14 @@ scanner:
     enabled: true
     flags:
     - -jsonl
+    # Skip info-level noise and cap request rate so nuclei stays fast and doesn't
+    # hammer the target -- the findings/resources trade-off tuned toward signal.
+    - -severity
+    - low,medium,high,critical
+    - -rate-limit
+    - '150'
+    - -timeout
+    - '8'
   nikto:
     enabled: false
     flags:
@@ -102,6 +144,55 @@ scanner:
     enabled: false
     flags:
     - ''
+  feroxbuster:
+    enabled: false
+    flags:
+    # Fast Rust content discovery. Bounded depth + scan-limit keep recursion from
+    # exploding; -k tolerates lab self-signed TLS. Enable in place of gobuster
+    # when you want recursion without the runtime blow-up.
+    - -w
+    - /usr/share/seclists/Discovery/Web-Content/common.txt
+    - -x
+    - html,php,js
+    - -t
+    - '40'
+    - --depth
+    - '2'
+    - --scan-limit
+    - '2'
+    - -k
+    - --silent
+    - --no-state
+  sslscan:
+    enabled: true
+    flags:
+    - --no-colour
+  wpscan:
+    enabled: true
+    # Vulnerable plugins/themes + user enum only (not the full aggressive set) and
+    # passive plugin detection -- targeted, so a WP host gets a real audit without
+    # a long brute-force. Self-gated: only runs where WordPress was fingerprinted.
+    api_token_file: wpscan_api.key
+    flags:
+    - --no-banner
+    - --random-user-agent
+    - --plugins-detection
+    - passive
+    - -e
+    - vp,vt,u
+  vhostfuzz:
+    enabled: true
+    # Runs the ffuf binary to fuzz Host: FUZZ.<domain>. -ac auto-calibrates against
+    # the default vhost so only genuinely different vhosts are reported; a 5k list
+    # keeps it fast. Only fires when a base domain is known (discovered vhost or a
+    # hostname target).
+    flags:
+    - -w
+    - /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt
+    - -ac
+  smbmap:
+    enabled: true
+    flags: []
   whatweb:
     enabled: true
     flags:
