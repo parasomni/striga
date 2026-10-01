@@ -272,6 +272,95 @@ PYEOF
     fi
 }
 
+# ==============================================================================
+# External-tool check. Striga invokes these as binaries on PATH (not pip deps);
+# it only reports which are present and, for any that are missing, suggests how to
+# install them. It never auto-installs them and never blocks the striga install --
+# a missing tool just means striga skips that module at runtime (nmap excepted:
+# it's required for scanning/enumeration).
+# ==============================================================================
+tool_hint() {
+    case "$1" in
+        nmap|nikto|whatweb|sslscan|whois|sqlmap|smbclient|dnsenum)
+            echo "${PM} $1" ;;
+        gobuster)    echo "${PM} gobuster   (or: go install github.com/OJ/gobuster/v3@latest)" ;;
+        ffuf)        echo "${PM} ffuf       (or: go install github.com/ffuf/ffuf/v2@latest)" ;;
+        nslookup)    if $is_arch; then echo "sudo pacman -S bind"; else echo "sudo apt-get install -y dnsutils"; fi ;;
+        snmpbulkwalk) if $is_arch; then echo "sudo pacman -S net-snmp"; else echo "sudo apt-get install -y snmp"; fi ;;
+        ldapsearch)  if $is_arch; then echo "sudo pacman -S openldap"; else echo "sudo apt-get install -y ldap-utils"; fi ;;
+        enum4linux)  if $is_arch; then echo "AUR: yay -S enum4linux"; else echo "sudo apt-get install -y enum4linux"; fi ;;
+        rustscan)    echo "cargo install rustscan   (or GitHub releases: https://github.com/bee-san/RustScan)" ;;
+        feroxbuster) echo "cargo install feroxbuster (or: ${PM} feroxbuster on recent distros)" ;;
+        nuclei)      echo "go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest" ;;
+        httpx)       echo "go install github.com/projectdiscovery/httpx/cmd/httpx@latest  (ProjectDiscovery -- NOT python httpx[cli]; if the wrong one is on PATH set web_tech_lookup.httpx_binary)" ;;
+        smbmap)      echo "pipx install smbmap       (or: ${PM} smbmap)" ;;
+        wpscan)      echo "gem install wpscan" ;;
+        dirbuster)   echo "legacy OWASP DirBuster; prefer feroxbuster/ffuf/gobuster -- leave disabled unless needed" ;;
+        msfconsole)  if $is_arch; then echo "sudo pacman -S metasploit"; else echo "install the Metasploit Framework (https://docs.metasploit.com/docs/using-metasploit/getting-started/nightly-installers.html)"; fi ;;
+        *)           echo "install '$1' and ensure it is on PATH" ;;
+    esac
+}
+
+check_tools() {
+    echo "==== Checking external tools (found on PATH via 'command -v') ===="
+    if $is_debian; then
+        PM="sudo apt-get install -y"
+    elif $is_arch; then
+        PM="sudo pacman -S"
+    else
+        PM="(use your package manager:)"
+    fi
+
+    # binary:purpose  (purpose must contain no ':')
+    local tools="
+nmap:core port/service discovery (REQUIRED)
+rustscan:fast port scanner (optional discovery front-end)
+nuclei:template-based vulnerability scanner
+nikto:web server scanner
+ffuf:web content discovery + vhost fuzzing
+gobuster:web content discovery
+feroxbuster:fast recursive content discovery
+dirbuster:legacy content discovery
+whatweb:web technology fingerprinting
+httpx:web tech fingerprinting (ProjectDiscovery)
+sslscan:TLS/cipher/cert audit
+wpscan:WordPress scanner
+whois:whois lookups
+enum4linux:SMB/AD enumeration
+smbclient:SMB share access
+smbmap:SMB share permissions
+snmpbulkwalk:SNMP walk
+dnsenum:DNS enumeration
+nslookup:DNS lookups
+sqlmap:SQL injection testing
+ldapsearch:LDAP enumeration
+msfconsole:Metasploit exploitation
+"
+    local present=0 missing=0 missing_list=""
+    while IFS=: read -r bin purpose; do
+        [ -z "$bin" ] && continue
+        if command -v "$bin" >/dev/null 2>&1; then
+            printf "  [ok]      %-13s %s\n" "$bin" "$(command -v "$bin")"
+            present=$((present + 1))
+        else
+            printf "  [missing] %-13s (%s)\n" "$bin" "$purpose"
+            printf "            suggested: %s\n" "$(tool_hint "$bin")"
+            missing=$((missing + 1))
+            missing_list="$missing_list $bin"
+        fi
+    done <<EOF
+$tools
+EOF
+
+    echo "---- $present present, $missing missing ----"
+    if [ "$missing" -gt 0 ]; then
+        echo "Missing tools are optional per-module -- striga skips a tool that isn't on PATH."
+        case " $missing_list " in
+            *" nmap "*) echo "WARNING: nmap is REQUIRED; scanning and enumeration won't work until it's installed." ;;
+        esac
+    fi
+}
+
 echo "==== Detecting operating system ===="
 detect_os
 
@@ -401,6 +490,8 @@ setup_ollama
 echo "==== Setting up Striga executable ===="
 sudo cp striga /usr/bin
 sudo chmod +x /usr/bin/striga
+
+check_tools
 
 if $UPDATE; then
     echo "==== Update complete ===="
