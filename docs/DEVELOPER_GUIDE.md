@@ -17,22 +17,22 @@ that match the services nmap detected, and exploitation works on what enumeratio
    striga.py (entry) ──► run_striga(args)  — parses mode, orchestrates
 
    ┌───────────────────────── scanner/ (nmap discovery) ─────────────────────────┐
-   │  run_nmap (2-phase)  ──►  OPEN PORTS + SERVICE NAMES   [MANDATORY: no scan,   │
-   │                                                        no enumeration]        │
+   │  run_nmap (2-phase)  ──►  OPEN PORTS + SERVICE NAMES   [MANDATORY: no scan, │
+   │                                                        no enumeration]      │
    └───────────────────────────────────┬─────────────────────────────────────────┘
-                                        │ scan_results text  (gates every task)
-                                        ▼
+                                       │ scan_results text  (gates every task)
+                                       ▼
    ┌───────────────────────── enumeration/ ──────────────────────────────────────┐
-   │  per-service wrappers, dispatched ONLY for detected services:                │
-   │  web→ffuf/gobuster/feroxbuster/webtech/…  smb→enum4linux/smbmap  dns/…  snmp  │
-   │  writes <tool>_<port>.* and webtech_<port>.json                              │
+   │  per-service wrappers, dispatched ONLY for detected services:               │
+   │  web→ffuf/gobuster/feroxbuster/webtech/…  smb→enum4linux/smbmap  dns/…  snmp │
+   │  writes <tool>_<port>.* and webtech_<port>.json                             │
    └───────────────────────────────────┬─────────────────────────────────────────┘
-                                        │ reads saved fingerprints/CVEs
-                                        ▼
+                                       │ reads saved fingerprints/CVEs
+                                       ▼
    ┌───────────────────────── exploitation/ ─────────────────────────────────────┐
-   │  scanner/ (vuln scanners: nmap-vuln, nuclei, nikto, rustscan) → CVEs         │
-   │  → Metasploit → sandboxed GitHub PoC                                          │
-   └──────────────────────────────────────────────────────────────────────────────┘
+   │  scanner/ (vuln scanners: nmap-vuln, nuclei, nikto, rustscan) → CVEs        │
+   │  → Metasploit → sandboxed GitHub PoC                                        │
+   └─────────────────────────────────────────────────────────────────────────────┘
 
    evaluation/  presenter (show saved results) · ai/ (LLM triage, reads files)
    core/        config · logger · scan-id · concurrency · vhost   (used by all stages)
