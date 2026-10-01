@@ -34,6 +34,12 @@ from typing import Any
 import requests
 
 
+class LLMClientError(RuntimeError):
+    """A non-retryable backend error (HTTP 4xx) carrying the server's own reason,
+    e.g. a missing model. Raised with a clear message so the evaluator records
+    *why* a module couldn't be evaluated instead of a bare status code."""
+
+
 class LLMClient:
     def __init__(
         self,
@@ -103,6 +109,10 @@ class LLMClient:
                 if self._is_ollama:
                     return self._chat_ollama(system, user, schema)
                 return self._chat_openai(system, user)
+            except LLMClientError:
+                # 4xx -- the request itself is wrong (e.g. model not pulled);
+                # retrying won't help, so surface it immediately and unwrapped.
+                raise
             except (requests.RequestException, ValueError) as exc:
                 last_exc = exc
                 if attempt >= self.retries:
@@ -121,7 +131,7 @@ class LLMClient:
             "options": {"temperature": self.temperature, **self.options},
         }
         resp = requests.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         data = resp.json()
         return (data.get("message") or {}).get("content", "")
 
@@ -143,12 +153,34 @@ class LLMClient:
             headers=self._headers(),
             timeout=self.timeout,
         )
-        resp.raise_for_status()
+        self._raise_for_status(resp)
         data = resp.json()
         choices = data.get("choices") or []
         if not choices:
             return ""
         return (choices[0].get("message") or {}).get("content", "")
+
+    def _raise_for_status(self, resp) -> None:
+        """Like resp.raise_for_status(), but surfaces the backend's own error body
+        (Ollama/OpenAI put the reason there, e.g. 'model \"x\" not found, try
+        pulling it first') instead of a bare status line. 4xx -> LLMClientError
+        (not retried); 5xx -> HTTPError (retried as transient)."""
+        if resp.status_code < 400:
+            return
+        reason = ""
+        try:
+            body = resp.json()
+            reason = body.get("error") or body.get("message") or ""
+            if isinstance(reason, dict):
+                reason = reason.get("message", "")
+        except ValueError:
+            reason = (resp.text or "").strip()[:300]
+        detail = f"HTTP {resp.status_code} from {resp.url}" + (f": {reason}" if reason else "")
+        if 400 <= resp.status_code < 500:
+            if resp.status_code == 404 and "model" in str(reason).lower():
+                detail += f"  (run: ollama pull {self.model})"
+            raise LLMClientError(detail)
+        raise requests.HTTPError(detail, response=resp)
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
