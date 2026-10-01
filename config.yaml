@@ -75,6 +75,10 @@ llm:
   provider: ollama
   model: qwen2.5:14b-instruct
   base_url: http://127.0.0.1:11434
+  # If the ollama backend isn't reachable when AI evaluation is about to run,
+  # start `ollama serve` in the background first (ollama provider only; requires
+  # the ollama binary on PATH). Set false to never auto-start it.
+  autostart: true
   max_input_chars: 12000      
   chunk_overlap_chars: 400
   review_min_confidence: 0.5 

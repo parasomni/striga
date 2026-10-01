@@ -74,8 +74,7 @@ fi
 # striga's own files. Re-run a fresh install (or configure Docker manually) if a
 # future release needs new host-level Docker changes.
 # ==============================================================================
-setup_docker() {
-    echo "==== Detecting operating system ===="
+detect_os() {
     OS_ID=""
     OS_ID_LIKE=""
     if [ -f /etc/os-release ]; then
@@ -83,7 +82,6 @@ setup_docker() {
         OS_ID="${ID:-}"
         OS_ID_LIKE="${ID_LIKE:-}"
     fi
-
     is_arch=false
     is_debian=false
     case " $OS_ID $OS_ID_LIKE " in
@@ -92,8 +90,10 @@ setup_docker() {
     case " $OS_ID $OS_ID_LIKE " in
         *" debian "*) is_debian=true ;;
     esac
-    echo "Detected: ID=$OS_ID ID_LIKE=$OS_ID_LIKE (arch=$is_arch debian=$is_debian)"
+    echo "Detected OS: ID=$OS_ID ID_LIKE=$OS_ID_LIKE (arch=$is_arch debian=$is_debian)"
+}
 
+setup_docker() {
     echo "==== Setting up Docker (required for the GitHub PoC sandbox feature) ===="
     if command -v docker >/dev/null 2>&1; then
         echo "Docker already installed, skipping package install."
@@ -198,6 +198,82 @@ PYEOF
         echo "(exploitation/sandbox_runner.py) will not work until it is."
     fi
 }
+
+# ==============================================================================
+# Optional: Ollama, the default local LLM backend for the AI evaluation layer.
+# We never force this -- if ollama isn't installed we ASK before installing it,
+# and we ASK again before pulling the (multi-GB) model. Both prompts are skipped
+# in a non-interactive run (piped installer), so automation never blocks.
+# ==============================================================================
+setup_ollama() {
+    echo "==== Optional: Ollama (local LLM backend for AI evaluation) ===="
+    if command -v ollama >/dev/null 2>&1; then
+        echo "Ollama is already installed."
+    else
+        local reply="n"
+        if [ -t 0 ]; then
+            read -r -p "Ollama is not installed. Install it now to enable AI evaluation? [y/N] " reply
+        else
+            echo "Non-interactive run: skipping Ollama install (install it manually to enable AI evaluation)."
+        fi
+        case "$reply" in
+            [yY]|[yY][eE][sS])
+                if $is_arch; then
+                    echo "Installing ollama via pacman..."
+                    sudo pacman -Sy --needed --noconfirm ollama
+                elif command -v curl >/dev/null 2>&1; then
+                    echo "Installing ollama via the official script (https://ollama.com/install.sh)..."
+                    curl -fsSL https://ollama.com/install.sh | sh
+                else
+                    echo "curl not found and distro isn't Arch -- install Ollama manually from https://ollama.com/download."
+                fi
+                ;;
+            *)
+                echo "Skipping Ollama install. AI evaluation will be skipped at runtime until a backend is reachable."
+                return 0
+                ;;
+        esac
+    fi
+
+    command -v ollama >/dev/null 2>&1 || return 0
+    sudo systemctl enable --now ollama 2>/dev/null || true
+
+    # Which model does the deployed config ask for? Read it with the venv python
+    # (has PyYAML); default to the shipped model if anything goes wrong.
+    local py="$INSTALL_ROOT/.venv/bin/python"
+    [ -x "$py" ] || py="python3"
+    local model
+    model="$("$py" - "$CONFIG_FILE" <<'PYEOF'
+import sys
+try:
+    import yaml
+    with open(sys.argv[1]) as f:
+        cfg = yaml.safe_load(f) or {}
+    print((cfg.get("llm") or {}).get("model", "") or "")
+except Exception:
+    print("")
+PYEOF
+)"
+    [ -n "$model" ] || model="qwen2.5:14b-instruct"
+
+    if ollama list 2>/dev/null | grep -q "$model"; then
+        echo "AI evaluation model '$model' already present."
+    else
+        local pull="n"
+        if [ -t 0 ]; then
+            read -r -p "Pull the AI evaluation model '$model' now? (multi-GB download) [y/N] " pull
+        else
+            echo "Non-interactive run: skipping model pull. Run 'ollama pull $model' to enable AI evaluation."
+        fi
+        case "$pull" in
+            [yY]|[yY][eE][sS]) ollama pull "$model" ;;
+            *) echo "Skipping model pull. Run 'ollama pull $model' before using AI evaluation." ;;
+        esac
+    fi
+}
+
+echo "==== Detecting operating system ===="
+detect_os
 
 if ! $UPDATE; then
     setup_docker
@@ -319,6 +395,8 @@ fi
 
 pip install -r requirements.txt
 deactivate
+
+setup_ollama
 
 echo "==== Setting up Striga executable ===="
 sudo cp striga /usr/bin

@@ -3,6 +3,8 @@ import json
 import os
 import subprocess
 import re
+import shutil
+import time
 
 from colorama import Fore, Style
 from datetime import datetime
@@ -169,6 +171,7 @@ def _ai_llm_cfg():
         "review_max_fp": val("review_max_fp", 0.5),
         "drop_below_confidence": val("drop_below_confidence", None),
         "output_format": val("output_format", "markdown"),
+        "autostart": val("autostart", True),
     }
 
 
@@ -314,6 +317,48 @@ def _ai_collect_findings(target):
     return findings
 
 
+def _ensure_ollama_running(llm_cfg, client):
+    """Best-effort: if the (ollama) backend isn't reachable but the `ollama` binary
+    is installed, start `ollama serve` in the background and wait briefly for it to
+    come up. Only runs for the ollama provider, gated by llm.autostart (default on).
+    Returns True once the backend is reachable, False otherwise -- never raises, so
+    a failure here just falls through to the normal "backend unreachable" skip.
+
+    Note: this starts the server, not the model. If the model isn't pulled yet the
+    server will still answer health() but evaluation will surface per-item 'model
+    not found' notices -- run `ollama pull <model>` once to fix that."""
+    if client.health():
+        return True
+    if not llm_cfg.get("autostart", True):
+        return False
+    if str(llm_cfg.get("provider", "")).lower() != "ollama":
+        return False
+    if not shutil.which("ollama"):
+        return False
+
+    logger.log(f"{Fore.LIGHTBLUE_EX}[*]{Style.RESET_ALL} Ollama not reachable at {Fore.LIGHTCYAN_EX}{llm_cfg.get('base_url')}{Style.RESET_ALL}; starting 'ollama serve'...")
+    try:
+        # Detached so it outlives this process; output discarded.
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError as error:
+        logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} Could not start Ollama: {error}")
+        return False
+
+    for _ in range(15):  # poll up to ~15s for the API to come up
+        time.sleep(1)
+        if client.health():
+            logger.log(f"{Fore.LIGHTGREEN_EX}[+]{Style.RESET_ALL} Ollama is up.")
+            return True
+
+    logger.log(f"{Fore.LIGHTYELLOW_EX}[-]{Style.RESET_ALL} Ollama did not become reachable in time.")
+    return False
+
+
 def run_ai_evaluation(args, target):
     """Evaluate a finished scan's findings with the local LLM layer. Gated by
     --ai-eval / --no-ai-eval (CLI) over llm.enabled (config.yaml). The AI layer is
@@ -330,7 +375,7 @@ def run_ai_evaluation(args, target):
         return
 
     evaluator = build_evaluator(llm_cfg)
-    if not evaluator.client.health():
+    if not _ensure_ollama_running(llm_cfg, evaluator.client):
         logger.log(f"{Fore.LIGHTRED_EX}[!]{Style.RESET_ALL} AI evaluation skipped: LLM backend unreachable at {Fore.LIGHTCYAN_EX}{llm_cfg.get('base_url')}{Style.RESET_ALL}")
         return
 
